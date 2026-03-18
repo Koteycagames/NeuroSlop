@@ -58,7 +58,7 @@
       chatBox.scrollTop = chatBox.scrollHeight;
     }
 
-    async function fetchAIResponse(message, model) {
+        async function fetchAIResponse(message, model) {
       const url = `https://api-inference.huggingface.co/models/${model}`;
       
       try {
@@ -66,21 +66,29 @@
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            // Вот эта магия снимает блокировку CORS
             "Authorization": `Bearer ${HF_TOKEN}`
           },
           body: JSON.stringify({ inputs: message })
         });
 
+        // 1. Если сервер ответил, но статус плохой (не 200 OK)
+        if (!response.ok) {
+          // Пытаемся прочитать текст ошибки, который прислал сервер
+          const errorText = await response.text();
+          throw new Error(`HTTP ${response.status} - ${errorText}`);
+        }
+
         const result = await response.json();
 
+        // 2. Если статус 200, но внутри JSON лежит ошибка от Hugging Face
         if (result.error) {
           if (result.error.includes("currently loading") || result.estimated_time) {
             return `⏳ Модель загружается. Подожди ~${Math.round(result.estimated_time || 20)} сек и попробуй снова.`;
           }
-          return `❌ Ошибка: ${result.error}`;
+          throw new Error(`Ошибка модели: ${result.error}`);
         }
 
+        // 3. Успешный ответ
         if (Array.isArray(result) && result[0].generated_text) {
           let reply = result[0].generated_text;
           if (reply.startsWith(message)) reply = reply.substring(message.length).trim();
@@ -88,13 +96,18 @@
         } else if (result.generated_text) {
           return result.generated_text;
         } else {
-          return JSON.stringify(result);
+          return `Странный ответ: ${JSON.stringify(result)}`;
         }
 
       } catch (err) {
-        return "❌ Ошибка соединения с Hugging Face.";
+        // Выводим полную ошибку в консоль F12 для дебага
+        console.error("Полная ошибка перехвата:", err);
+        
+        // Выводим текст ошибки прямо в чат
+        return `❌ Ошибка: ${err.message}`;
       }
     }
+
 
     async function handleSend() {
       const text = userInput.value.trim();
