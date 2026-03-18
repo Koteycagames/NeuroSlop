@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>AI Мульти-чат (Hugging Face API)</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
+    body { background-color: #1e1e2e; color: #cdd6f4; display: flex; flex-direction: column; height: 100vh; }
+    header { background-color: #181825; padding: 15px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #313244; }
+    select { background: #313244; color: #cdd6f4; border: none; padding: 10px; border-radius: 8px; font-size: 16px; outline: none; flex-grow: 1; margin-left: 10px; }
+    #chat-box { flex-grow: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+    .message { max-width: 80%; padding: 12px 16px; border-radius: 12px; font-size: 16px; line-height: 1.4; word-wrap: break-word; }
+    .message.user { background-color: #89b4fa; color: #11111b; align-self: flex-end; border-bottom-right-radius: 2px; }
+    .message.bot { background-color: #313244; color: #cdd6f4; align-self: flex-start; border-bottom-left-radius: 2px; }
+    .message.system { background-color: transparent; color: #a6adc8; align-self: center; font-size: 12px; font-style: italic; text-align: center; }
+    footer { background-color: #181825; padding: 15px; display: flex; gap: 10px; border-top: 1px solid #313244; }
+    input { flex-grow: 1; background: #313244; color: #cdd6f4; border: none; padding: 15px; border-radius: 25px; font-size: 16px; outline: none; }
+    button { background: #89b4fa; color: #11111b; border: none; padding: 0 20px; border-radius: 25px; font-size: 16px; font-weight: bold; cursor: pointer; }
+    button:active { transform: scale(0.95); }
+    button:disabled { background: #45475a; color: #7f849c; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <span>🤖 Модель:</span>
+    <select id="model-select">
+      <option value="facebook/blenderbot-400M-distill">BlenderBot (Общение)</option>
+      <option value="Felladrin/Llama-160M-Chat-v1">Micro Llama (Ответы)</option>
+      <option value="google/flan-t5-base">Flan-T5 (Задачи/ИИ)</option>
+    </select>
+  </header>
+
+  <div id="chat-box">
+    <div class="message system">Подключено через твой API-ключ. CORS больше не страшен! Запросы пиши на английском.</div>
+  </div>
+
+  <footer>
+    <input type="text" id="user-input" placeholder="Напиши сообщение..." autocomplete="off">
+    <button id="send-btn">Отправить</button>
+  </footer>
+
+  <script>
+    const chatBox = document.getElementById('chat-box');
+    const userInput = document.getElementById('user-input');
+    const sendBtn = document.getElementById('send-btn');
+    const modelSelect = document.getElementById('model-select');
+
+    // ТВОЙ КЛЮЧ (Внимание: не выкладывай его в публичные репозитории!)
+    const HF_TOKEN = "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";
+
+    function addMessage(text, sender) {
+      const msgDiv = document.createElement('div');
+      msgDiv.classList.add('message', sender);
+      msgDiv.textContent = text;
+      chatBox.appendChild(msgDiv);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    async function fetchAIResponse(message, model) {
+      const url = `https://api-inference.huggingface.co/models/${model}`;
+      
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            // Вот эта магия снимает блокировку CORS
+            "Authorization": `Bearer ${HF_TOKEN}`
+          },
+          body: JSON.stringify({ inputs: message })
+        });
+
+        const result = await response.json();
+
+        if (result.error) {
+          if (result.error.includes("currently loading") || result.estimated_time) {
+            return `⏳ Модель загружается. Подожди ~${Math.round(result.estimated_time || 20)} сек и попробуй снова.`;
+          }
+          return `❌ Ошибка: ${result.error}`;
+        }
+
+        if (Array.isArray(result) && result[0].generated_text) {
+          let reply = result[0].generated_text;
+          if (reply.startsWith(message)) reply = reply.substring(message.length).trim();
+          return reply || "Модель промолчала...";
+        } else if (result.generated_text) {
+          return result.generated_text;
+        } else {
+          return JSON.stringify(result);
+        }
+
+      } catch (err) {
+        return "❌ Ошибка соединения с Hugging Face.";
+      }
+    }
+
+    async function handleSend() {
+      const text = userInput.value.trim();
+      if (!text) return;
+
+      const selectedModel = modelSelect.value;
+
+      userInput.value = '';
+      userInput.disabled = true;
+      sendBtn.disabled = true;
+
+      addMessage(text, 'user');
+
+      const loadingId = Date.now();
+      const loadingDiv = document.createElement('div');
+      loadingDiv.classList.add('message', 'bot');
+      loadingDiv.id = loadingId;
+      loadingDiv.textContent = 'Печатает...';
+      chatBox.appendChild(loadingDiv);
+      chatBox.scrollTop = chatBox.scrollHeight;
+
+      const reply = await fetchAIResponse(text, selectedModel);
+
+      document.getElementById(loadingId).textContent = reply;
+      chatBox.scrollTop = chatBox.scrollHeight;
+
+      userInput.disabled = false;
+      sendBtn.disabled = false;
+      userInput.focus();
+    }
+
+    sendBtn.addEventListener('click', handleSend);
+    userInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') handleSend();
+    });
+  </script>
+
+</body>
+</html>
